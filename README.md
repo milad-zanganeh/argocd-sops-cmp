@@ -2,12 +2,12 @@
 
 `argocd-sops-cmp` is an Argo CD
 [Config Management Plugin (CMP)](https://argo-cd.readthedocs.io/en/stable/user-guide/config-management-plugins/) that
-renders a Helm chart and its SOPS-encrypted secrets together in a single pass.
+renders a Helm chart and its [SOPS](https://github.com/getsops/sops)-encrypted secrets together in a single pass.
 
 Argo CD renders Helm natively but has no built-in way to handle SOPS-encrypted secrets kept in a repository; the common
 workarounds add a second tool, a separate Application, or a mutating controller. This plugin combines both steps into
 one: it runs `helm template` on the chart — honouring values files, `--set` parameters, CRDs, and the release name and
-namespace — and appends every file under `secrets/`, decrypted with [SOPS](https://github.com/getsops/sops) and GnuPG, to
+namespace — and appends every file under `secrets/`, decrypted with SOPS and GnuPG, to
 the same manifest stream.
 
 Because the rendered manifests and the decrypted `Secret` manifests are emitted together, Argo CD manages the secrets
