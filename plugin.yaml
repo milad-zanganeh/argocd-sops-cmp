@@ -1,0 +1,32 @@
+# argocd-sops-cmp — Argo CD Config Management Plugin
+#
+# Renders a Helm chart and appends the SOPS-decrypted Secret manifests found in
+# the chart's optional `secrets/` directory. Argo CD owns every resource; the
+# plugin NEVER calls `kubectl apply`.
+#
+# The three phases below invoke the `argocd-sops-cmp` binary (Go source in this
+# directory, built into the sidecar image). All logic — dependency resolution,
+# GPG setup, value-file validation, rendering, SOPS decryption — and the
+# human-readable error messages live in the binary.
+apiVersion: argoproj.io/v1alpha1
+kind: ConfigManagementPlugin
+metadata:
+  name: argocd-sops-cmp
+spec:
+  version: v1.0
+
+  # Match a Helm chart (Chart.yaml) OR a secrets-only app (a secrets/ dir with
+  # no chart). Argo runs discover even when the Application names the plugin, so
+  # this must cover both. Prints "match" (non-empty stdout) when applicable.
+  discover:
+    find:
+      command: [argocd-sops-cmp, discover]
+
+  # Build Helm dependencies (skipped for non-charts and for charts whose deps
+  # are already vendored in charts/).
+  init:
+    command: [argocd-sops-cmp, init]
+
+  # Render the chart (if any) and append decrypted secrets/*.yaml|*.yml.
+  generate:
+    command: [argocd-sops-cmp, generate]
