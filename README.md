@@ -87,15 +87,11 @@ configs:
           command: [argocd-sops-cmp, generate]
 
 repoServer:
-  # Only needed if your registry is private.
-  imagePullSecrets:
-    - name: <your-registry-pull-secret>
-
   automountServiceAccountToken: false
 
   extraContainers:
     - name: argocd-sops-cmp
-      image: <your-registry>/argocd-sops-cmp:<tag>
+      image: miladzanganeh/argocd-sops-cmp:v0.1.0
       imagePullPolicy: IfNotPresent
       command:
         - /var/run/argocd/argocd-cmp-server
