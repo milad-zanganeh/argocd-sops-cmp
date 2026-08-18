@@ -2,16 +2,11 @@
 
 `argocd-sops-cmp` is an Argo CD
 [Config Management Plugin (CMP)](https://argo-cd.readthedocs.io/en/stable/user-guide/config-management-plugins/) that
-renders a Helm chart and its [SOPS](https://github.com/getsops/sops)-encrypted secrets together in a single pass.
+renders a Helm chart and appends its [SOPS](https://github.com/getsops/sops)-encrypted secrets, decrypted, to the same
+manifest stream (something Argo CD cannot do natively without a second tool, a separate Application, or a mutating
+controller).
 
-Argo CD renders Helm natively but has no built-in way to handle SOPS-encrypted secrets kept in a repository; the common
-workarounds add a second tool, a separate Application, or a mutating controller. This plugin combines both steps into
-one: it runs `helm template` on the chart — honouring values files, `--set` parameters, CRDs, and the release name and
-namespace — and appends every file under `secrets/`, decrypted with SOPS and GnuPG, to
-the same manifest stream.
-
-Because the rendered manifests and the decrypted `Secret` manifests are emitted together, Argo CD manages the secrets
-like any other resource, so diffing, pruning, and self-heal all behave as expected. The repository only ever stores
+Argo CD then manages the secrets like any other resource (diff, prune, self-heal). The repository only ever stores
 ciphertext: decryption happens in memory inside the repo-server sidecar, and the plugin never runs `kubectl apply`.
 
 ## Quick start
@@ -20,10 +15,10 @@ ciphertext: decryption happens in memory inside the repo-server sidecar, and the
 
    ```
    my-app/
-   ├── Chart.yaml            # optional — omit for a secrets-only app
+   ├── Chart.yaml            # optional (omit for a secrets-only app)
    ├── values.yaml
    ├── templates/
-   └── secrets/              # optional — omit for a chart-only app
+   └── secrets/              # optional (omit for a chart-only app)
        ├── db-credentials.yaml   # SOPS-encrypted
        └── tls.yaml              # SOPS-encrypted
    ```
@@ -54,7 +49,7 @@ ciphertext: decryption happens in memory inside the repo-server sidecar, and the
    ```
 
 Argo CD passes those env vars to the plugin as `ARGOCD_ENV_*`. Every `HELM_VALUE_FILES` path must exist and stay inside
-the app source directory — absolute paths and `../` traversal out of the repo are rejected.
+the app source directory (absolute paths and `../` traversal out of the repo are rejected).
 
 ## How it works
 
@@ -62,8 +57,8 @@ the app source directory — absolute paths and `../` traversal out of the repo 
 
 - **discover** claims the directory whenever it finds a `Chart.yaml` or a `secrets/` directory, so an app can be
   chart-only, secrets-only, or both.
-- **init** resolves chart dependencies before rendering — `helm dependency build` when a `Chart.lock` is present,
-  otherwise `update`. It adds any classic `http(s)` dependency repos, injecting credentials only for your configured
+- **init** resolves chart dependencies before rendering (`helm dependency build` when a `Chart.lock` is present,
+  otherwise `update`). It adds any classic `http(s)` dependency repos, injecting credentials only for your configured
   private repo host, and does nothing for secrets-only apps or charts that already vendor their `charts/`.
 - **generate** runs `helm template` (when a chart exists) and then appends the decrypted `secrets/*.yaml` and
   `secrets/*.yml` files, sorted so the output is byte-stable across renders.
@@ -175,16 +170,46 @@ repoServer:
             path: private-key.asc
 ```
 
-You also need a Secret named `argocd-sops-gpg` holding your GPG key material — the keys it expects
-(`private-key.asc`, `passphrase`, `keygrip`) are described under [Configuration](#configuration).
+## Secrets you must create
+
+Create these Kubernetes Secrets in the namespace where the Argo CD repo-server runs (usually `argocd`) before the plugin
+can work.
+
+### `argocd-sops-gpg` (required)
+
+Holds the GPG key the sidecar decrypts with. **The plugin will not render anything without it** (`generate` fails fast
+if the keygrip, passphrase, or key file is missing). It needs three keys:
+
+| Key               | What it is                                                        |
+|-------------------|-------------------------------------------------------------------|
+| `private-key.asc` | Your ASCII-armored, passphrase-protected GPG **private** key.     |
+| `passphrase`      | The passphrase that unlocks that key.                             |
+| `keygrip`         | The key's keygrip (what `gpg-preset-passphrase` presets against). |
+
+Export the key and find its keygrip, then create the Secret:
+
+```bash
+gpg --armor --export-secret-keys <KEY_ID> > private-key.asc
+gpg --with-keygrip --list-secret-keys <KEY_ID>   # read the "Keygrip = ..." line
+
+kubectl create secret generic argocd-sops-gpg \
+  --namespace argocd \
+  --from-file=private-key.asc=private-key.asc \
+  --from-literal=passphrase='<your-key-passphrase>' \
+  --from-literal=keygrip='<your-key-keygrip>'
+```
+
+The **keygrip** is not the same as the key **fingerprint** used as the SOPS recipient, so make sure you copy the
+`Keygrip = …` line.
+
 
 ## Configuration
 
 The plugin reads a few environment variables from the sidecar container (not per-Application). For decryption it needs
 `SOPS_GPG_PASSPHRASE` (the GPG key passphrase) and `SOPS_GPG_KEYGRIP` (the keygrip `gpg-preset-passphrase` presets it
 for); the armored private key is read from `SOPS_GPG_KEY_FILE`, defaulting to `/argocd-sops-cmp/keys/private-key.asc`. If your
-chart pulls dependencies from a private Helm repo, set `HELM_REPO_HOST`, `HELM_REPO_USERNAME` and `HELM_REPO_PASSWORD` —
-the credentials are applied only to dependency repos on that host.
+chart pulls dependencies from a private Helm repo, set `HELM_REPO_HOST`, `HELM_REPO_USERNAME` and `HELM_REPO_PASSWORD`
+(the credentials are applied only to dependency repos on that host).
 
 Decryption runs in a private, ephemeral `GNUPGHOME` created per invocation; the passphrase is fed to
 `gpg-preset-passphrase` on stdin (never on the command line), and the throwaway `GNUPGHOME` and its `gpg-agent` are torn

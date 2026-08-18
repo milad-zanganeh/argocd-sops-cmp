@@ -116,9 +116,9 @@ func helmDependency(op string) error {
 	if err != nil {
 		msg := fmt.Sprintf("helm dependency %s failed: %v", op, err)
 		if strings.Contains(out, "no cached repository") {
-			msg += "\nhint: a chart-repo index is missing — check the dependency's" +
+			msg += "\nhint: a chart-repo index is missing (check the dependency's" +
 				" repository URL, and for the private repo host that" +
-				" HELM_REPO_USERNAME/HELM_REPO_PASSWORD are set."
+				" HELM_REPO_USERNAME/HELM_REPO_PASSWORD are set)."
 		}
 		return fmt.Errorf("%s", msg)
 	}
