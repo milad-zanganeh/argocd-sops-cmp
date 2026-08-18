@@ -1,0 +1,17 @@
+# Compiled binary (built by `go build .` / the Dockerfile build stage)
+/argocd-sops-cmp
+
+# Go workspace files
+go.work
+go.work.sum
+
+# SOPS / GPG material 
+*.decrypted.yaml
+*.decrypted.yml
+*.asc
+*.gpg
+*.key
+
+# Editors
+.idea
+
